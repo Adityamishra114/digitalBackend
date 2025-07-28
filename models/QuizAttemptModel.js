@@ -51,4 +51,7 @@ const quizAttemptSchema = new mongoose.Schema(
 
 const QuizAttempt = mongoose.model("QuizAttempt", quizAttemptSchema);
 export default QuizAttempt;
+<<<<<<< HEAD
 
+=======
+>>>>>>> 68a02aa036222499ccc2b4a772998b9ad50cba1c

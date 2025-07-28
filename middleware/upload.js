@@ -1,12 +1,10 @@
-
 import multer from "multer";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-
-// AWS S3 setup
+import { getCloudFrontUrl } from "../utils/s3Helpers.js";
 const s3 = new S3Client({
   region: process.env.AWS_REGION,
   credentials: {
@@ -14,8 +12,6 @@ const s3 = new S3Client({
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
 });
-
-// Multer disk storage setup
 const diskStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, os.tmpdir());
@@ -25,24 +21,20 @@ const diskStorage = multer.diskStorage({
     cb(null, `${Date.now()}-${uuidv4()}-${safeName}`);
   },
 });
-
-// Multer instance
 const createMulter = (maxFileSize = 4 * 1024 * 1024 * 1024) =>
   multer({
     storage: diskStorage,
     limits: { fileSize: maxFileSize },
   });
-
-// Use `.fields()` or `.any()` dynamically
 export const getUploadMiddleware = (fieldConfig = null) => {
   const instance = createMulter();
   return fieldConfig ? instance.fields(fieldConfig) : instance.any();
 };
 
-// Upload to S3 from disk
+const cloudfrontUrl = process.env.CLOUDFRONT_URL;
+
 export const extractS3Uploads = async (req, res, next) => {
   const bucket = process.env.AWS_BUCKET_NAME;
-  const region = process.env.AWS_REGION;
   const uploads = [];
 
   const files = Array.isArray(req.files)
@@ -63,7 +55,6 @@ export const extractS3Uploads = async (req, res, next) => {
         .replace(/[^a-zA-Z0-9_-]/g, "");
 
       let folder = "others";
-
       if (file.fieldname.startsWith("content-image")) folder = "modules/images";
       else if (file.fieldname.startsWith("content-audio")) folder = "modules/audios";
       else if (file.fieldname.startsWith("content-video")) folder = "modules/videos";
@@ -86,12 +77,15 @@ export const extractS3Uploads = async (req, res, next) => {
           Key: key,
           Body: fileBuffer,
           ContentType: file.mimetype,
+          CacheControl: "public, max-age=31536000", 
         })
       );
 
+      const publicUrl = getCloudFrontUrl(key);
+
       uploads.push({
         field: file.fieldname,
-        url: `https://${bucket}.s3.${region}.amazonaws.com/${key}`,
+        url: publicUrl,
         key,
         originalName: file.originalname,
         type: file.mimetype,
@@ -105,10 +99,12 @@ export const extractS3Uploads = async (req, res, next) => {
     next();
   } catch (err) {
     console.error("❌ S3 Upload Error:", err);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "S3 upload failed",
       error: err.message,
     });
   }
 };
+
+
